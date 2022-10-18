@@ -40,7 +40,7 @@ dev.off()
 ### 2. Computing the corresponding posteriors
 
 # New observed data from present year 
-nnew = 74
+nnew = 79
 ynew = 5
 
 pdf(width=8,height=6,file="beta_posteriors.pdf")
