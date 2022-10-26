@@ -1,0 +1,18 @@
+
+model {
+
+# Priors 
+  mu1 ~ dnorm(100,0.001)
+  delta ~ dnorm(0,0.001)
+  tau <-1/(sigma*sigma)
+  sigma ~ dunif(0,100)
+  
+# Likelihood
+ for (i in 1:n) {
+    y[i] ~ dnorm(mu[i],tau)
+    mu[i]  = mu1 + delta * x[i]
+ }
+
+# Derived quantities: one of the greatest things about a Bayesian analysis
+ mu2 <- mu1 + delta			# Difference in wingspan
+}

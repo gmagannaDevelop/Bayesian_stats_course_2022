@@ -81,17 +81,19 @@ y1 <- rnorm(n1, mu1, sigma)		# Data for females
 y2 <- rnorm(n2, mu2, sigma)		# Date for males
 y <- c(y1, y2)				# Aggregate both data sets
 x <- rep(c(0,1), c(n1, n2))		# Indicator for male
-boxplot(y ~ x, col = "grey", xlab = "Male", ylab = "Wingspan (cm)", las = 1)
+x11();boxplot(y ~ x, col = "grey", xlab = "Male", ylab = "Wingspan (cm)", las = 1)
 
 n <- n1+n2				# Total sample size
 alpha <- mu1				# Mean for females serves as the intercept
 beta <- mu2-mu1				# Beta is the difference male-female
 E.y <- alpha + beta*x			# Expectation
 y.obs <- rnorm(n = n, mean = E.y, sd = sigma)	# Add random variation
-boxplot(y.obs ~ x, col = "grey", xlab = "Male", ylab = "Wingspan (cm)", las = 1)
+x11();boxplot(y.obs ~ x, col = "grey", xlab = "Male", ylab = "Wingspan (cm)", las = 1)
 
 ### Analysis using R in a frequentist setup
 #...
+summary(lm(y~x))
+summary(lm(y.obs~x))
 
 # Bundle and summarize the data set passed to JAGS
 str(jags.data <- list(x = x, y = y, n = n))  # passing the data
@@ -103,14 +105,14 @@ model {
 # Priors
  mu1 ~ dnorm(0,0.001)			  # Beware dnorm(mean,precision)
  delta ~ dnorm(0,0.001)			# Large variance = Small precision
- tau <- ...
- sigma ~ ...
+ tau <- 1/(sigma*sigma)
+ sigma ~ dunif(0,10)
 
 # Likelihood
  for (i in 1:n) {
     y[i] ~ dnorm(mu[i], tau) 
-    mu[i] <- ... 
-    residual[i] <- ...		# Define residuals
+    mu[i] <- mu1 + delta*x[i] 
+    residual[i] <- y[i]-mu[i]		# Define residuals
  }
 
 # Derived quantities: one of the greatest things about a Bayesian analysis
@@ -168,10 +170,10 @@ y1 <- rnorm(n1, mu1, sigma)		# Data for females
 y2 <- rnorm(n2, mu2, sigma)		# Date for males
 y <- c(y1, y2)				# Aggregate both data sets
 x <- rep(c(0,1), c(n1, n2))		# Indicator for male
-boxplot(y ~ x, col = "grey", xlab = "Male", ylab = "Wingspan (cm)", las = 1)
+x11();boxplot(y ~ x, col = "grey", xlab = "Male", ylab = "Wingspan (cm)", las = 1)
 
 ### Analysis using R in frequentist setup
-#...
+summary(lm(y~x))
 
 # Bundle and summarize the data set passed to JAGS
 str(jags.data <- list(x = x, y = y, n = n))  # passing the data
@@ -180,12 +182,16 @@ str(jags.data <- list(x = x, y = y, n = n))  # passing the data
 cat(file = "ttest.txt", "
 model {
 
-# Priors
-# ...
-
+# Priors 
+  mu1 ~ dnorm(100,0.001)
+  delta ~ dnorm(0,0.001)
+  tau <-1/(sigma*sigma)
+  sigma ~ dexp(1)
+  
 # Likelihood
  for (i in 1:n) {
-    ...
+    y[i] ~ dnorm(mu[i],tau)
+    mu[i]  = mu1 + delta * x[i]
  }
 
 # Derived quantities: one of the greatest things about a Bayesian analysis
@@ -208,7 +214,7 @@ print(out, dig = 2)
 # To visualize stuff
 denplot(out,parms=c("delta","mu1","mu2","sigma"))
 
-# The result on size difference is ... because sigma is ... than expected
+# The result on size difference is biased because sigma is lower than expected
 # Two options to correct that  
 # (1) Increase sample size (e.g. to 100 total individuals)
 # (2) Use a better prior on sigma, like dexp(1/10) or dunif(0,100) 
@@ -240,11 +246,16 @@ str(jags.data <- list(x = x, y = y, n = n))  # passing the data
 cat(file = "ttest.txt", "
 model {
 
-# Priors
-
+# Priors 
+  mu1 ~ dnorm(100,0.001)
+  delta ~ dnorm(0,0.001)
+  tau <-1/(sigma*sigma)
+  sigma ~ dunif(0,100)
+  
 # Likelihood
  for (i in 1:n) {
- ...
+    y[i] ~ dnorm(mu[i],tau)
+    mu[i]  = mu1 + delta * x[i]
  }
 
 # Derived quantities: one of the greatest things about a Bayesian analysis
@@ -267,6 +278,8 @@ print(out, dig = 2)
 # To visualize stuff
 denplot(out,parms=c("delta","mu1","mu2","sigma"))
 
+# dexp(1/10) and dunif(0,100) are satisfactory as priors but we have a small noisy sample, 
+# which means not much information for the posterior.  
 
 ### 3. One-way analysis of variance
 
@@ -310,23 +323,23 @@ cat(file = "anova.txt", "
     model {
     
     # Priors
-    for (i in 1:5){			# Implicitly define alpha as a vector
-    alpha[i] ~ dnorm(..., ...) # Beware that a mean at 0 only works because variance is huge. 
+    for (k in 1:5){			# Implicitly define alpha as a vector
+    alpha[k] ~ dnorm(30,0.001) # 
     }
     sigma ~ dunif(0, 100)
     
     # Likelihood
     for (i in 1:50) {
-    y[i] ~ dnorm(..., tau) 
-    mean[i] <- ...
+    y[i] ~ dnorm(mean[i], tau) 
+    mean[i] <- alpha[x[i]]
     }
     
     # Derived quantities
     tau <- 1 / ( sigma * sigma)
     effect2 <- alpha[2] - alpha[1] 
-    effect3 <- ...
-    effect4 <- ...
-    effect5 <- ...
+    effect3 <- alpha[3] - alpha[1] 
+    effect4 <- alpha[4] - alpha[1] 
+    effect5 <- alpha[5] - alpha[1] 
     # effects are relative to 1, if you want relative to the preceding one (for instance)
     # you would use alpha[i+1] - alpha[i] for i in 1:4
     
