@@ -1,38 +1,32 @@
-model {
 
-# Priors
-mu ~ dnorm(0, 0.001) # Intercept
-#for(i in 1:97){
-for(i in 1:M){
-  # Random site effects
-  # I like to choose my priors based on my data
-  # see apply(na.omit(bdatal$LC), 1, mean) %>% hist()
-  site[i] ~ dnorm(0, tau.site) 
-}
+    model {
 
-sd.site ~ dunif(0,6) # alternative: rbeta(1.5, 1.5)
-# see apply(na.omit(bdatal$LC), 1, sd) %>% hist()
-# and rbeta(100, 1.5, 1.5) %>% hist
-tau.site <- pow(sd.site, -2)
+    # Priors
+    mu ~ dnorm(0, 0.001) # Intercept
+    for(i in 1:M){
+      site[i] ~ dnorm(0,tau.site) # Random site effects
+      }
+    tau.site <- pow(sd.site, -2)
+    sd.site ~ dunif(0,5)
+    for(t in 1:T){
+      year[t] ~ dnorm(0,tau.year) # Random year effects
+      }
+    tau.year <- pow(sd.year, -2)
+    sd.year ~ dunif(0,5)
+    tau <- pow(sd, -2)
+    sd ~ dunif(0,5)
 
-for(t in 1:18){
-  year[t] ~ dnorm(0, tau.year) # Random year effects
-}
-tau.year <- pow(sd.year, -2)
-sd.year ~ dunif(0, 5)
-tau <- pow(sd, -2)
-sd ~ dunif(0, 5)
-
-# Likelihood
-for (i in 1:M){
-  for(t in 1:T){
-    LC[i,t] ~ dnorm(lambda[i,t], tau) # some distribution
-    lambda[i,t] <- mu + site[i] + year[t] # some effects 
-    resid[i,t]<-LC[i,t]-lambda[i,t]
+    # Likelihood
+    for (i in 1:M){
+      for(t in 1:T){
+        LC[i,t] ~ dnorm(lambda[i,t],tau) # some distribution
+        lambda[i,t] <- mu + site[i] + year[t] # some effects 
+        resid[i,t]<-LC[i,t]-lambda[i,t]
+        }
+      }
+    # Derived quantities
+    for(t in 1:T){
+      popindex[t] <- sum(lambda[,t])
+      }
     }
-  }
-# Derived quantities
-for(t in 1:T){
-  popindex[t] <- sum(lambda[,t])
-  }
-}
+    
