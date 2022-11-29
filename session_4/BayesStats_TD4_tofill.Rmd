@@ -124,44 +124,57 @@ str(bdatal <- list(LC = LC[sel,], M = newM, T = ncol(LC[sel,])))
 
 ```
 
+This analysis is arbitrary and has the sole purpose of being able to do a 
+"nice" ANOVA, on  quasi-gaussian data.
+
+
 This should make the model easier to fit and faster
 
 
 ```{r jags-code-LMM}
+library(glue)
 # Specify model in BUGS language
-cat(file = "model_lmm.txt","
+cat(file = "model_lmm.txt",glue("
     model {
 
     # Priors
     mu ~ dnorm(0, 0.001) # Intercept
-    for(i in 1:...){
-      site[i] ~ ... # Random site effects
-      }
+    #for(i in 1:{{nrow(bdatal$LC)}}){
+    for(i in 1:M){
+      # Random site effects
+      # I like to choose my priors based on my data
+      # see apply(na.omit(bdatal$LC), 1, mean) %>% hist()
+      site[i] ~ dnorm(0, tau.site) 
+    }
+    
+    sd.site ~ dunif(0,6) # alternative: rbeta(1.5, 1.5)
+    # see apply(na.omit(bdatal$LC), 1, sd) %>% hist()
+    # and rbeta(100, 1.5, 1.5) %>% hist
     tau.site <- pow(sd.site, -2)
-    sd.site ~ ...
-    for(t in 1:...){
-      year[t] ~ ... # Random year effects
-      }
+    
+    for(t in 1:{{ncol(bdatal$LC)}}){
+      year[t] ~ dnorm(0, tau.year) # Random year effects
+    }
     tau.year <- pow(sd.year, -2)
-    sd.year ~ ...
+    sd.year ~ dunif(0, 5)
     tau <- pow(sd, -2)
-    sd ~ ...
+    sd ~ dunif(0, 5)
 
     # Likelihood
-    for (i in 1:...){
-      for(t in 1:...){
-        LC[i,t] ~ ... # some distribution
-        lambda[i,t] <- mu + ... # some effects 
+    for (i in 1:M){
+      for(t in 1:T){
+        LC[i,t] ~ dnorm(lambda[i,t], tau) # some distribution
+        lambda[i,t] <- mu + site[i] + year[t] # some effects 
         resid[i,t]<-LC[i,t]-lambda[i,t]
         }
       }
     # Derived quantities
-    for(t in 1:..){
+    for(t in 1:T){
       popindex[t] <- sum(lambda[,t])
       }
     }
-    ")
-
+    ", .open="{{", .close="}}")
+)
 # Initial values
 inits <- function() list(mu = rnorm(1), site = rnorm(newM), year = rnorm(length(year)))
 
@@ -244,28 +257,28 @@ cat(file = "model_lmm2.txt","
     # Priors
     mu ~ dnorm(0, 0.001) # Intercept
     for(i in 1:M){
-      site[i] ~ ...  # Random site effects
+      site[i] ~ dnorm(0, tau.site)  # Random site effects
       }
     tau.site <- pow(sd.site, -2)
     sd.site ~ dunif(0, 5)
     for(t in 1:T){
-      year[t] ~ ... # Random year effects
+      year[t] ~ dnorm(0, tau.year) # Random year effects
       }
     tau.year <- pow(sd.year, -2)
-    sd.year ~ ...
+    sd.year ~ dunif(0, 5)
     tau <- pow(sd, -2)
-    sd ~ ...
+    sd ~ dunif(0, 5)
     
     # Prior on the slope
-    gamma ~ ...
+    gamma ~ dnorm(0, 0.01)
 
     # Likelihood
     for (i in 1:M){
       for(t in 1:T){
-        LC[i,t] ~ ...
-        lambda[i,t] <- mu + ...
-        }
+        LC[i,t] ~ dnorm(lambda[i, t], tau)
+        lambda[i,t] <- mu + site[i] + year[t] + gamma * yr[t]
       }
+    }
     # Derived quantities
     for(t in 1:T){
       popindex[t] <- sum(lambda[,t])
@@ -280,7 +293,7 @@ inits <- function() list(mu = rnorm(1), site = rnorm(newM), year = rnorm(length(
 params <- c("mu", "sd.site", "sd.year", "sd", "gamma", "popindex")
 
 # MCMC settings
-ni <- 10000; nt <- 10 ; nb <- 5000 ; nc <- 3 
+ni <- 10000; nt <- 10 ; nb <- 5000 ; nc <- 5 
 
 out_lmm2 <- jags(bdatal, inits, params, "model_lmm2.txt", n.chains = nc,n.thin = nt, n.iter = ni, n.burnin = nb)
 head(print(out_lmm2))
@@ -299,7 +312,32 @@ We now remove the random year effect
 
 cat(file = "model_lmm3.txt","
     model {
-    ... 
+
+    # Priors
+    mu ~ dnorm(0, 0.001) # Intercept
+    for(i in 1:M){
+      site[i] ~ dnorm(0, tau.site)  # Random site effects
+      }
+    tau.site <- pow(sd.site, -2)
+    sd.site ~ dunif(0, 5)
+    
+    tau <- pow(sd, -2)
+    sd ~ dunif(0, 5)
+    
+    # Prior on the slope
+    gamma ~ dnorm(0, 0.01)
+
+    # Likelihood
+    for (i in 1:M){
+      for(t in 1:T){
+        LC[i,t] ~ dnorm(lambda[i, t], tau)
+        lambda[i,t] <- mu + site[i] + gamma * yr[t]
+      }
+    }
+    # Derived quantities
+    for(t in 1:T){
+      popindex[t] <- sum(lambda[,t])
+      }
     }
     ")
 
@@ -307,10 +345,10 @@ cat(file = "model_lmm3.txt","
 inits <- function() list(mu = rnorm(1), site = rnorm(newM),gamma=rnorm(1))
 
 # Parameters monitored
-params <- c(...)
+params <- c("mu", "sd.site", "sd", "gamma", "popindex")
 
 # MCMC settings
-ni <- 10000; nt <- 10 ; nb <- 5000 ; nc <- 3 
+ni <- 10000; nt <- 10 ; nb <- 5000 ; nc <- 5
 
 out_lmm3 <- jags(bdatal, inits, params, "model_lmm3.txt", n.chains = nc,n.thin = nt, n.iter = ni, n.burnin = nb)
 
@@ -318,7 +356,7 @@ out_lmm3 <- jags(bdatal, inits, params, "model_lmm3.txt", n.chains = nc,n.thin =
 traceplot(out_lmm3, varname = "sd")
 traceplot(out_lmm3, varname = "gamma")
 
-denplot(out_lmm3, parms = c("sd","sd.year","sd.site"))
+denplot(out_lmm3, parms = c("sd","sd.site"))
 denplot(out_lmm3, parms = "gamma")
 
 ```
@@ -333,7 +371,8 @@ q97.5_lmm3 = quantile(out_lmm3$BUGSoutput$sims.list$gamma,0.975)
 c(q02.5_lmm2,q97.5_lmm2)  
 c(q02.5_lmm3,q97.5_lmm3)  
 ## This is something handy from package MCMCplot
-#MCMCplot(out_lmm3,out_lmm2,params="gamma",ISB = TRUE, exact = FALSE)
+#library(mcmcplots)
+#mcmcplot(out_lmm3,out_lmm2,params="gamma",ISB = TRUE, exact = FALSE)
 
 ```
 
