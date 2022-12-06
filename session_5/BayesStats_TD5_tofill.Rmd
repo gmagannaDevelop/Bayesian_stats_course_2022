@@ -22,7 +22,7 @@ knitr::opts_chunk$set(cache = FALSE)
 library(R2jags)
 library(knitr)
 library(ggmcmc)
-
+library(jagsUI)
 ```
 
 ```{r details about code, include=FALSE,eval=FALSE}
@@ -45,7 +45,9 @@ library(ggmcmc)
 We re-execute the previous code to load the data and get the covariates
 
 ```{r load-and-plot-data}
-dat<-read.csv("../Bayesian_stats_course_2022/session_4/crestedTit.csv")
+#here::here()
+library(here)
+dat<-read.csv(here("Bayesian_stats_course_2022/session_4/crestedTit.csv"))
 #str(dat)
 dat$X<-NULL
 # head(dat)
@@ -98,8 +100,13 @@ sel <- nzero <= 1 # Select sites with <= 1 zero count
 newM <- sum(sel)  # Define new number of sites
 
 # Bundle and summarize data
-str(bdatal <- list(LC=LC[sel,], M = newM, T = ncol(LC[sel,]), yr = year - mean(year), elev = elev.sc[sel,], forest = forest.sc[sel,], date = date.sc[sel,], dur = dur.sc[sel,],
-    twosurveys = as.numeric(dat$nsurveys[sel] == 2)) )
+str(bdatal <- list(
+  LC=LC[sel,], M = newM, T = ncol(LC[sel,]), 
+  yr = (year - mean(year))/sd(year), # sans standardiser / sd(year), c'est plus facile a interpreter
+  elev = elev.sc[sel,], forest = forest.sc[sel,], 
+  date = date.sc[sel,], dur = dur.sc[sel,],
+  twosurveys = as.numeric(dat$nsurveys[sel] == 2))
+)
 ```
 
 It is a bit unclear whether the relationships to elevation and date are linear. We can assume a polynomial of order 2. 
@@ -129,8 +136,46 @@ cat(file = "model_lmm4.txt","
     model {
 
     ########### Priors ################
+    # Free parameters
+      mu ~ dnorm(0, 0.001) # Intercept
+      sd ~ dunif(0, 5) 
+      tau <- pow(sd, -2)
+    
+    # Random effects (linear declaration)
+    ## Site 
+      sd.site ~ dunif(0, 5)
+      tau.site <- pow(sd.site, -2)
+      for (i in 1:M){
+          site[i] ~ dnorm(0, tau.site)
+      }
+    ## Year
+      sd.year ~ dunif(0, 5)
+      tau.year <- pow(sd.year, -2)
+      for (i in 1:T){
+          year[i] ~ dnorm(0, tau.year)
+      }
+    
+    # Fixed effects
+    ## Prior on gamma
+      gamma ~ dnorm(0, 0.01)
+    
+    ## Vector of thetas
+    for (j in 1:7){
+      theta[j] ~ dnorm(0, 0.01)
+    }
 
     ############ Likelihood ###########
+    for (i in 1:M){
+      for(t in 1:T){
+        lambda[i,t] <- mu + site[i] + year[t] + gamma * yr[t] +
+                        theta[1] * elev[i] + theta[2] * elev[i]^2 +
+                        theta[3] * forest[i] + theta[4] * date[i, t] +
+                        theta[5] * date[i, t]^2 + theta[6] * dur[i, t] +
+                        theta[7] * twosurveys[i]
+        LC[i,t] ~ dnorm(lambda[i,t], tau)
+      }
+    }
+
 
     ############  Derived quantities ############ 
     for (t in 1:T){
@@ -146,7 +191,7 @@ inits <- function() list(mu = rnorm(1), site = rnorm(newM), year = rnorm(length(
 params <- c("mu", "sd.site", "sd.year", "sd", "gamma", "theta","popindex")
 
 # MCMC settings
-na <- 1000 ; ni <- 15000; nt <- 10 ; nb <- 5000 ; nc <- 3 # also core number for parallel computation with jagsUI
+na <- 1000 ; ni <- 15000; nt <- 10 ; nb <- 5000 ; nc <- 5 # also core number for parallel computation with jagsUI
 
 #to see progress do not use parallel computation (slower)
 # for jagsUI
@@ -167,18 +212,20 @@ ggs_pairs(S,family = "theta")
 
 #effect_elev = function(x){return(out_lmm4$mean$theta[1]*x+out_lmm4$mean$theta[2]*x^2)}
 effect_elev = function(x){return(out_lmm4$BUGSoutput$mean$theta[1]*x+out_lmm4$BUGSoutput$mean$theta[2]*x^2)}
+effect_date = function(x){return(out_lmm4$BUGSoutput$mean$theta[4]*x+out_lmm4$BUGSoutput$mean$theta[5]*x^2)}
 
 curve(effect_elev,from=min(elev.sc),to=max(elev.sc))
+curve(effect_date,from=min(date.sc),to=max(date.sc))
 
 ```
 
 We see that
 
-* forest cover has a ... effect 
-* there are more birds at ...-altitude
-* date has likely ... effect
-* duration ...
-* two or three surveys ...
+* forest cover has a positive effect 
+* there are more birds at mid-altitude
+* date has likely negative effect
+* duration has a positive effect
+* two or three surveys -> more birds if three surveys but minor effect
 
 ## What does affect the trend? 
 
@@ -200,10 +247,46 @@ cat(file = "model_lmm5.txt","
     model {
 
     # Priors
-     ...
+    # Free parameters
+      mu ~ dnorm(0, 0.001) # Intercept
+      sd ~ dunif(0, 5) 
+      tau <- pow(sd, -2)
+    
+    # Random effects (linear declaration)
+    ## Site 
+      sd.site ~ dunif(0, 5)
+      tau.site <- pow(sd.site, -2)
+      for (i in 1:M){
+          site[i] ~ dnorm(0, tau.site)
+      }
+    ## Year
+      sd.year ~ dunif(0, 5)
+      tau.year <- pow(sd.year, -2)
+      for (i in 1:T){
+          year[i] ~ dnorm(0, tau.year)
+      }
+    
+    ## Prior on gamma
+    mu.gamma ~ dnorm(0, 0.01)
+    sd.gamma ~ dexp(1)
+    tau.gamma <- pow(sd.gamma, -2)
+    for (i in 1:M){
+      gamma[i] ~ dnorm(mu.gamma, tau.gamma)
+    }
+    
+    # Fixed effects
+    ## Vector of thetas
+    for (j in 1:7){
+      theta[j] ~ dnorm(0, 0.01)
+    }
      
     # Likelihood 
-     ...
+    for (i in 1:M){
+      for(t in 1:T){
+        lambda[i,t] <- mu + site[i] + year[t] + gamma[i] * yr[t]
+        LC[i,t] ~ dnorm(lambda[i,t], tau)
+      }
+    }
      
     # Derived quantities
     for(t in 1:T){
@@ -219,11 +302,11 @@ inits <- function() list(mu = rnorm(1), site = rnorm(newM), year = rnorm(length(
 params <- c("mu", "sd.site", "sd.year", "sd", "mu.gamma","sd.gamma","gamma","popindex")
 
 # MCMC settings
-na <- 1000 ; ni <- 15000; nt <- 10 ; nb <- 5000 ; nc <- 3 # also core number for parallel computation with jagsUI
+na <- 1000 ; ni <- 15000; nt <- 10 ; nb <- 5000 ; nc <- 5# also core number for parallel computation with jagsUI
 
 #to see progress do not use parallel computation (slower)
-# out_lmm5<- jags(bdatal, inits, params, "model_lmm5.txt", n.adapt = na, n.chains = nc,n.thin = nt, n.iter = ni, n.burnin = nb, parallel = TRUE) # jagsUI
-out_lmm5<- jags(bdatal, inits, params, "model_lmm5.txt", n.chains = nc,n.thin = nt, n.iter = ni, n.burnin = nb) #R2jags
+out_lmm5<- jags(bdatal, inits, params, "model_lmm5.txt", n.adapt = na, n.chains = nc,n.thin = nt, n.iter = ni, n.burnin = nb, parallel = TRUE) # jagsUI
+#out_lmm5<- jags(bdatal, inits, params, "model_lmm5.txt", n.chains = nc,n.thin = nt, n.iter = ni, n.burnin = nb) #R2jags
 
 head(print(out_lmm5))
 
@@ -237,8 +320,47 @@ cat(file = "model_lmm5_bis.txt","
     model {
 
     # Priors
-
-    # Likelihood
+    # Free parameters
+      mu ~ dnorm(0, 0.001) # Intercept
+      sd ~ dunif(0, 5) 
+      tau <- pow(sd, -2)
+    
+    # Random effects (linear declaration)
+    ## Site 
+      sd.site ~ dunif(0, 5)
+      tau.site <- pow(sd.site, -2)
+      for (i in 1:M){
+          site[i] ~ dnorm(0, tau.site)
+      }
+    ## Year
+      sd.year ~ dunif(0, 5)
+      tau.year <- pow(sd.year, -2)
+      for (i in 1:T){
+          year[i] ~ dnorm(0, tau.year)
+      }
+    
+    ## Prior on gamma
+    #mu.gamma ~ dnorm(0, 0.01)
+    #sd.gamma ~ dexp(1)
+    #tau.gamma <- pow(sd.gamma, -2)
+    for (i in 1:M){
+      #gamma[i] ~ dnorm(mu.gamma, tau.gamma)
+      gamma[i] ~ dnorm(0, 0.01)
+    }
+    
+    # Fixed effects
+    ## Vector of thetas
+    for (j in 1:7){
+      theta[j] ~ dnorm(0, 0.01)
+    }
+     
+    # Likelihood 
+    for (i in 1:M){
+      for(t in 1:T){
+        lambda[i,t] <- mu + site[i] + year[t] + gamma[i] * yr[t]
+        LC[i,t] ~ dnorm(lambda[i,t], tau)
+      }
+    }
 
     # Derived quantities
     for(t in 1:T){
@@ -254,21 +376,24 @@ inits <- function() list(mu = rnorm(1), site = rnorm(newM), year = rnorm(length(
 params <- c("mu", "sd.site", "sd.year", "sd", "gamma","popindex")
 
 # MCMC settings
-na <- 1000 ; ni <- 15000; nt <- 10 ; nb <- 5000 ; nc <- 3 # core number for parallel computation
+na <- 1000 ; ni <- 15000; nt <- 10 ; nb <- 5000 ; nc <- 5 # core number for parallel computation
 
 # jags UI -- to see progress do not use parallel computation (slower)
-# out_lmm5_bis<- jags(bdatal, inits, params, "model_lmm5_bis.txt", n.adapt = na, n.chains = nc,n.thin = nt, n.iter = ni, n.burnin = nb, parallel = TRUE)
-out_lmm5_bis<- jags(bdatal, inits, params, "model_lmm5_bis.txt", n.chains = nc,n.thin = nt, n.iter = ni, n.burnin = nb) #R2jags
+out_lmm5_bis<- jags(bdatal, inits, params, "model_lmm5_bis.txt", n.adapt = na, n.chains = nc,n.thin = nt, n.iter = ni, n.burnin = nb, parallel = TRUE)
+#out_lmm5_bis<- jags(bdatal, inits, params, "model_lmm5_bis.txt", n.chains = nc,n.thin = nt, n.iter = ni, n.burnin = nb) #R2jags
 head(print(out_lmm5_bis))
 
-#plot(out_lmm5_bis$mean$gamma,out_lmm5$mean$gamma)
-#abline(a=0,b=1,col="blue")
-#abline(lm(out_lmm5$mean$gamma~out_lmm5_bis$mean$gamma),col="red")
-#lm(out_lmm5$mean$gamma~out_lmm5_bis$mean$gamma)
-plot(out_lmm5_bis$BUGSoutput$mean$gamma,out_lmm5$BUGSoutput$mean$gamma)
+# Pour JAGS ui :
+plot(out_lmm5_bis$mean$gamma,out_lmm5$mean$gamma)
 abline(a=0,b=1,col="blue")
-abline(lm(out_lmm5$BUGSoutput$mean$gamma~out_lmm5_bis$BUGSoutput$mean$gamma),col="red")
-lm(out_lmm5$BUGSoutput$mean$gamma~out_lmm5_bis$BUGSoutput$mean$gamma)
+abline(lm(out_lmm5$mean$gamma~out_lmm5_bis$mean$gamma),col="red")
+lm(out_lmm5$mean$gamma~out_lmm5_bis$mean$gamma)
+
+# Pour JAGS normal :
+#plot(out_lmm5_bis$BUGSoutput$mean$gamma,out_lmm5$BUGSoutput$mean$gamma)
+#abline(a=0,b=1,col="blue")
+#abline(lm(out_lmm5$BUGSoutput$mean$gamma~out_lmm5_bis$BUGSoutput$mean$gamma),col="red")
+#lm(out_lmm5$BUGSoutput$mean$gamma~out_lmm5_bis$BUGSoutput$mean$gamma)
 
 ## Some skrinkage
 ```
